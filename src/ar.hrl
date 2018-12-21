@@ -1,6 +1,7 @@
 %%% A collection of record structures used throughout the Arweave server.
 
 %%% FORK INDEX
+%%% @deprecated Fork heights from 1.7 on are defined in the ar_fork module.
 -define(FORK_1_6, 95000).
 
 %% @doc How nodes identify they are on the same network.
