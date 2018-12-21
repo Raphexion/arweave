@@ -12,7 +12,7 @@ ERL_OPTS= -pa ebin/ \
 
 test_all: test test_apps
 
-test: all
+test: build_test_deps all
 	@erl $(ERL_OPTS) -noshell -s ar test_coverage -s init stop
 
 test_apps: all
@@ -59,6 +59,8 @@ build: data blocks hash_lists wallet_lists
 	erlc $(ERLC_OPTS) +export_all -o ebin/ src/ar.erl
 	erl $(ERL_OPTS) -noshell -s ar rebuild -s init stop
 
+build_test_deps:
+	(cd lib/meck && ./rebar3 compile)
 
 blocks:
 	mkdir -p blocks
@@ -77,7 +79,7 @@ docs: all
 	mkdir -p docs
 	(cd docs && erl -noshell -s ar docs -pa ../ebin -s init stop)
 
-session: all
+session: build_test_deps all
 	erl $(ERL_OPTS) -s ar start -pa ebin/
 
 sim_realistic: all
