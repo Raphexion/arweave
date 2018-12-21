@@ -91,7 +91,7 @@ handle(SPid, {add_tx, TX}) ->
 	{ok, StateIn} =
 		ar_node_state:lookup(
 			SPid,
-			[gossip, node, txs, waiting_txs, potential_txs]
+			[gossip, node, txs, waiting_txs, potential_txs, height]
 		),
 	case add_tx(StateIn, TX, maps:get(gossip, StateIn)) of
 		{ok, StateOut} ->
@@ -101,7 +101,10 @@ handle(SPid, {add_tx, TX}) ->
 	end,
 	{ok, add_tx};
 handle(SPid, {encounter_new_tx, TX}) ->
-	{ok, StateIn} = ar_node_state:lookup(SPid, [gossip, txs, waiting_txs, floating_wallet_list]),
+	{ok, StateIn} = ar_node_state:lookup(
+		SPid,
+		[gossip, txs, waiting_txs, floating_wallet_list, height]
+	),
 	case encounter_new_tx(StateIn, TX, maps:get(gossip, StateIn)) of
 		{ok, StateOut} ->
 			ar_node_state:update(SPid, StateOut);
@@ -222,7 +225,7 @@ handle_gossip(SPid, {NewGS, {new_block, Peer, _Height, NewB, Recall}}) ->
 	end,
 	{ok, process_new_block};
 handle_gossip(SPid, {NewGS, {add_tx, TX}}) ->
-	{ok, StateIn} = ar_node_state:lookup(SPid, [node, txs, waiting_txs, potential_txs]),
+	{ok, StateIn} = ar_node_state:lookup(SPid, [node, txs, waiting_txs, potential_txs, height]),
 	case add_tx(StateIn, TX, NewGS) of
 		{ok, StateOut} ->
 			ar_node_state:update(SPid, StateOut);
@@ -254,9 +257,20 @@ handle_gossip(SPid, {NewGS, UnhandledMsg}) ->
 
 %% @doc Add new transaction to a server state.
 add_tx(StateIn, TX, GS) ->
-	#{node := Node, waiting_txs := WaitingTXs, potential_txs := PotentialTXs} = StateIn,
+	#{
+		node := Node,
+		waiting_txs := WaitingTXs,
+		potential_txs := PotentialTXs,
+		height := Height
+	} = StateIn,
 	case ar_node_utils:get_conflicting_txs(aggregate_txs(StateIn), TX) of
 		[] ->
+			case Height >= ar_fork:height_1_7() of
+				true ->
+					Node ! {update_floating_wallet_list, TX};
+				false ->
+					noop
+			end,
 			{NewGS, _} = ar_gossip:send(GS, {add_tx, TX}),
 			timer:send_after(
 				ar_node_utils:calculate_delay(byte_size(TX#tx.data)),
@@ -277,7 +291,12 @@ add_tx(StateIn, TX, GS) ->
 
 %% @doc Update miner and amend server state when encountering a new transaction.
 encounter_new_tx(StateIn, TX, NewGS) ->
-	#{txs := TXs, waiting_txs := WaitingTXs, floating_wallet_list := FloatingWalletList} = StateIn,
+	#{
+		txs := TXs,
+		waiting_txs := WaitingTXs,
+		floating_wallet_list := FloatingWalletList,
+		height := Height
+	} = StateIn,
 	memsup:start_link(),
 	{_, Mem} = lists:keyfind(system_total_memory, 1, memsup:get_system_memory_data()),
 	case (Mem div 4) > byte_size(TX#tx.data) of
@@ -285,10 +304,14 @@ encounter_new_tx(StateIn, TX, NewGS) ->
 			NewTXs = TXs ++ [TX],
 			{ok, [
 				{txs, NewTXs},
-				{floating_wallet_list, ar_node_utils:apply_tx(FloatingWalletList, TX)},
 				{gossip, NewGS},
 				{waiting_txs, WaitingTXs -- [TX]}
-			]};
+			] ++ case Height < ar_fork:height_1_7() of
+				true ->
+					[{floating_wallet_list, ar_node_utils:apply_tx(FloatingWalletList, TX)}];
+				false ->
+					[]
+				end};
 		false ->
 			{ok, [
 				{gossip, NewGS},

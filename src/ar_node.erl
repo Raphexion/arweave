@@ -659,6 +659,11 @@ handle(_SPid, {add_peers, Peers}) ->
 	{task, {add_peers, Peers}};
 handle(_SPid, {apply_tx, TX}) ->
 	{task, {encounter_new_tx, TX}};
+handle(SPid, {update_floating_wallet_list, TX}) ->
+	{ok, FloatingWalletList} = ar_node_state:lookup(SPid, floating_wallet_list),
+	NewFloatingWalletList = ar_node_utils:apply_tx(FloatingWalletList, TX),
+	ar_node_state:update(SPid, [{floating_wallet_list, NewFloatingWalletList}]),
+	ar:info("Updating ~p to the floating wallet list", [TX#tx.id]);
 handle(_SPid, {new_block, Peer, Height, NewB, Recall}) ->
 	{task, {process_new_block, Peer, Height, NewB, Recall}};
 handle(_SPid, {replace_block_list, NewBL}) ->
