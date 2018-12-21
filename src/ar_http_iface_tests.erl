@@ -27,10 +27,10 @@ fork_1_7_test_() ->
 			{"add_tx_and_get_last_test", fun add_tx_and_get_last_test/0},
 			{"get_subfields_of_tx_test", fun get_subfields_of_tx_test/0},
 			{"get_pending_tx_test", fun get_pending_tx_test/0},
-			{"get_multiple_pending_txs_test_", fun get_multiple_pending_txs_test_/0},
+			{"get_multiple_pending_txs_test_", get_multiple_pending_txs_test_()},
 			{"get_tx_by_tag_test", fun get_tx_by_tag_test/0},
 			{"get_tx_body_test", fun get_tx_body_test/0},
-			{"get_txs_by_send_recv_test_", fun get_txs_by_send_recv_test_/0}
+			{"get_txs_by_send_recv_test_", get_txs_by_send_recv_test_()}
 		]
 	}.
 
