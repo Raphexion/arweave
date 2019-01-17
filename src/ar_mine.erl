@@ -33,15 +33,7 @@ start(CurrentB, RecallB, RawTXs, RewardAddr, Tags, Diff, Parent) ->
 	Timestamp = os:system_time(seconds),
 	% Ensure that the txs in which the mining process is passed
 	% validate and can be serialized.
-	TXs =
-		lists:filter(
-			fun(T) ->
-				ar_tx:verify(T, Diff, CurrentB#block.wallet_list)
-			end,
-			ar_node_utils:filter_all_out_of_order_txs(
-				CurrentB#block.wallet_list, RawTXs
-			)
-		),
+	TXs = pick_txs_to_mine(CurrentB#block.height, Diff, CurrentB#block.wallet_list, RawTXs),
 	PID = spawn(
 		fun() ->
 			server(
@@ -71,6 +63,31 @@ start(CurrentB, RecallB, RawTXs, RewardAddr, Tags, Diff, Parent) ->
 	),
 	PID ! mine,
 	PID.
+
+pick_txs_to_mine(Height, Diff, WalletList, TXs) ->
+	case Height >= ar_fork:height_1_7() of
+		true ->
+			{PickedTXs, _} = lists:foldl(
+				fun(T, {Acc, FloatingWalletList}) ->
+					case ar_tx:verify(T, Diff, FloatingWalletList) of
+						true ->
+							{Acc ++ [T], ar_node_utils:apply_tx(FloatingWalletList, T)};
+						_ ->
+							{Acc, FloatingWalletList}
+					end
+				end,
+				{[], WalletList},
+				ar_node_utils:filter_all_out_of_order_txs(WalletList, TXs)
+			),
+			PickedTXs;
+		false ->
+			lists:filter(
+				fun(T) ->
+					ar_tx:verify(T, Diff, WalletList)
+				end,
+				TXs
+			)
+	end.
 
 %% @doc Stop a running mining server.
 stop(PID) ->

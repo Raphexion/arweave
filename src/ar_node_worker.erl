@@ -306,7 +306,7 @@ encounter_new_tx(StateIn, TX, NewGS) ->
 				{txs, NewTXs},
 				{gossip, NewGS},
 				{waiting_txs, WaitingTXs -- [TX]}
-			] ++ case Height < ar_fork:height_1_7() of
+			] ++ case Height >= ar_fork:height_1_7() of
 				true ->
 					[{floating_wallet_list, ar_node_utils:apply_tx(FloatingWalletList, TX)}];
 				false ->
@@ -481,7 +481,8 @@ integrate_block_from_miner(StateIn, MinedTXs, Diff, Nonce, Timestamp) ->
 		tags          := Tags,
 		reward_pool   := OldPool,
 		weave_size    := OldWeaveSize,
-		potential_txs := PotentialTXs
+		potential_txs := PotentialTXs,
+		height        := Height
 	} = StateIn,
 	% Calculate the new wallet list (applying TXs and mining rewards).
 	RecallB = ar_node_utils:find_recall_block(HashList),
@@ -526,11 +527,7 @@ integrate_block_from_miner(StateIn, MinedTXs, Diff, Nonce, Timestamp) ->
 		),
 	% Store the transactions that we know about, but were not mined in
 	% this block.
-	NotMinedTXs =
-		lists:filter(
-			fun(T) -> ar_tx:verify(T, Diff, WalletList) end,
-			ar_node_utils:filter_all_out_of_order_txs(WalletList, TXs -- MinedTXs)
-		),
+	NotMinedTXs = pick_not_mined_txs(Height, Diff, WalletList, TXs, MinedTXs),
 	StateNew = StateIn#{ wallet_list => WalletList },
 	% Build the block record, verify it, and gossip it to the other nodes.
 	[NextB | _] = ar_weave:add(
@@ -618,6 +615,30 @@ integrate_block_from_miner(StateIn, MinedTXs, Diff, Nonce, Timestamp) ->
 			)}
 	end.
 
+pick_not_mined_txs(Height, Diff, WalletList, TXs, MinedTXs) ->
+	case Height >= ar_fork:height_1_7() of
+		true ->
+			{NotMinedTXs, _} = lists:foldl(
+				fun(T, {Acc, FloatingWalletList}) ->
+					case ar_tx:verify(T, Diff, FloatingWalletList) of
+						true ->
+							{Acc ++ [T], ar_node_utils:apply_tx(FloatingWalletList, T)};
+						false ->
+							{Acc, FloatingWalletList}
+					end
+				end,
+				{[], WalletList},
+				ar_node_utils:filter_all_out_of_order_txs(WalletList, TXs -- MinedTXs)
+			),
+			NotMinedTXs;
+		false ->
+			lists:filter(
+				fun(T) ->
+					ar_tx:verify(T, Diff, WalletList)
+				end,
+				ar_node_utils:filter_all_out_of_order_txs(WalletList, TXs -- MinedTXs)
+			)
+	end.
 
 %% @doc Handle executed fork recovery.
 recovered_from_fork(#{ id := BinID, hash_list := not_joined} = StateIn, NewHs) ->

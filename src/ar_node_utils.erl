@@ -176,14 +176,12 @@ apply_tx(WalletList, TX) ->
 
 %% @doc Update a wallet list with a set of new transactions.
 apply_txs(WalletList, TXs) ->
-	lists:sort(
-		lists:foldl(
-			fun(TX, CurrWalletList) ->
-				apply_tx(CurrWalletList, TX)
-			end,
-			WalletList,
-			TXs
-		)
+	lists:foldl(
+		fun(TX, CurrWalletList) ->
+			apply_tx(CurrWalletList, TX)
+		end,
+		WalletList,
+		TXs
 	).
 
 %% @doc Force a node to start mining, update state.

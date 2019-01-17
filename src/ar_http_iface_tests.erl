@@ -4,6 +4,8 @@
 
 -module(ar_http_iface_tests).
 
+-export([can_post_multiple_txs_per_wallet/0]).
+
 -include("ar.hrl").
 -include_lib("eunit/include/eunit.hrl").
 
@@ -19,6 +21,7 @@ fork_1_7_test_() ->
 			meck:unload(ar_fork)
 		end,
 		[
+			%% Tests that run for both before and after fork 1.7
 			{"get_last_tx_single_test", fun get_last_tx_single_test/0},
 			{"add_external_tx_test", fun add_external_tx_test/0},
 			{"add_external_tx_with_tags_test", fun add_external_tx_with_tags_test/0},
@@ -30,7 +33,9 @@ fork_1_7_test_() ->
 			{"get_multiple_pending_txs_test_", get_multiple_pending_txs_test_()},
 			{"get_tx_by_tag_test", fun get_tx_by_tag_test/0},
 			{"get_tx_body_test", fun get_tx_body_test/0},
-			{"get_txs_by_send_recv_test_", get_txs_by_send_recv_test_()}
+			{"get_txs_by_send_recv_test_", get_txs_by_send_recv_test_()},
+			%% Tests that only run for after fork 1.7
+			{"can_post_multiple_txs_per_wallet", fun can_post_multiple_txs_per_wallet/0}
 		]
 	}.
 
@@ -1077,6 +1082,45 @@ get_wallet_deposits_test_() ->
 		TXsSinceSecondTX = GetTXs(ar_util:encode(SecondTX#tx.id)),
 		?assertEqual([ar_util:encode(SecondTX#tx.id)], TXsSinceSecondTX)
 	end}.
+
+can_post_multiple_txs_per_wallet() ->
+	ar_storage:clear(),
+	{Priv, Pub} = ar_wallet:new(),
+	B0 = ar_weave:init([{ar_wallet:to_address(Pub), ?AR(100), <<>>}]),
+	Node = ar_node:start([], B0),
+	ar_http_iface_server:reregister(Node),
+	Bridge = ar_bridge:start([], Node, ?DEFAULT_HTTP_IFACE_PORT),
+	ar_http_iface_server:reregister(http_bridge_node, Bridge),
+	ar_node:add_peers(Node, Bridge),
+	%% Create and post two transaction from the same wallet
+	TX = (ar_tx:new())#tx{ owner = Pub, reward = ?AR(1) },
+	SignedTX = ar_tx:sign(TX, {Priv, Pub}),
+	TX2 = (ar_tx:new())#tx{ owner = Pub, reward = ?AR(1), last_tx = SignedTX#tx.id },
+	SignedTX2 = ar_tx:sign(TX2, {Priv, Pub}),
+	{ok, {{<<"200">>, _}, _, <<"OK">>, _, _}} =
+		ar_httpc:request(
+			<<"POST">>,
+			{127, 0, 0, 1, 1984},
+			"/tx",
+			[],
+			ar_serialize:jsonify(ar_serialize:tx_to_json_struct(SignedTX))
+		),
+	receive after 100 -> ok end,
+	{ok, {{<<"200">>, _}, _, <<"OK">>, _, _}} =
+		ar_httpc:request(
+			<<"POST">>,
+			{127, 0, 0, 1, 1984},
+			"/tx",
+			[],
+			ar_serialize:jsonify(ar_serialize:tx_to_json_struct(SignedTX2))
+		),
+	receive after 1000 -> ok end,
+	ar_node:mine(Node),
+	receive after 1000 -> ok end,
+	ReadTX = ar_storage:read_tx(SignedTX#tx.id),
+	?assertEqual(<<>>, ReadTX#tx.last_tx),
+	ReadTX2 = ar_storage:read_tx(SignedTX2#tx.id),
+	?assertEqual(SignedTX#tx.id, ReadTX2#tx.last_tx).
 
 %	Node = ar_node:start([], B0),
 %	ar_http_iface_server:reregister(Node),
