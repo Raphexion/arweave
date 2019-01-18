@@ -4,7 +4,7 @@
 
 -module(ar_http_iface_tests).
 
--export([can_post_multiple_txs_per_wallet/0]).
+-export([can_post_multiple_txs_per_wallet/0, accepts_blocks_with_multiple_txs_per_wallet/0]).
 
 -include("ar.hrl").
 -include_lib("eunit/include/eunit.hrl").
@@ -35,7 +35,11 @@ fork_1_7_test_() ->
 			{"get_tx_body_test", fun get_tx_body_test/0},
 			{"get_txs_by_send_recv_test_", get_txs_by_send_recv_test_()},
 			%% Tests that only run for after fork 1.7
-			{"can_post_multiple_txs_per_wallet", fun can_post_multiple_txs_per_wallet/0}
+			{"can_post_multiple_txs_per_wallet", fun can_post_multiple_txs_per_wallet/0},
+			{
+				"accepts_blocks_with_multiple_txs_per_wallet",
+				fun accepts_blocks_with_multiple_txs_per_wallet/0
+			}
 		]
 	}.
 
@@ -1116,6 +1120,36 @@ can_post_multiple_txs_per_wallet() ->
 		),
 	receive after 1000 -> ok end,
 	ar_node:mine(Node),
+	receive after 1000 -> ok end,
+	ReadTX = ar_storage:read_tx(SignedTX#tx.id),
+	?assertEqual(<<>>, ReadTX#tx.last_tx),
+	ReadTX2 = ar_storage:read_tx(SignedTX2#tx.id),
+	?assertEqual(SignedTX#tx.id, ReadTX2#tx.last_tx).
+
+%% The test ensures that if a node has multiple txs per wallet in the mempool and
+%% receives a new block, it preserves those txs in the mempool and later mines them
+%% into another block successfully. Runs after fork 1.7.
+accepts_blocks_with_multiple_txs_per_wallet() ->
+	ar_storage:clear(),
+	{Priv, Pub} = ar_wallet:new(),
+	%% Create a node and fill its mempool with 2 txs from the same wallet
+	B0 = ar_weave:init([{ar_wallet:to_address(Pub), ?AR(100), <<>>}]),
+	NodeA = ar_node:start([], B0),
+	TX = (ar_tx:new())#tx{ owner = Pub, reward = ?AR(1) },
+	SignedTX = ar_tx:sign(TX, {Priv, Pub}),
+	ar_node:add_tx(NodeA, SignedTX),
+	TX2 = (ar_tx:new())#tx{ owner = Pub, reward = ?AR(1), last_tx = SignedTX#tx.id },
+	SignedTX2 = ar_tx:sign(TX2, {Priv, Pub}),
+	ar_node:add_tx(NodeA, SignedTX2),
+	%% Wait a little bit so that when we connect the nodes, NodeB does not receive the txs
+	receive after 1000 -> ok end,
+	%% Create another node, mine an empty block on it, connect it with NodeA to receive it
+	NodeB = ar_node:start([], B0),
+	ar_node:add_peers(NodeB, NodeA),
+	ar_node:mine(NodeB),
+	receive after 1000 -> ok end,
+	%% Mine a new block on NodeA - expect the original transactions to be mined into it
+	ar_node:mine(NodeA),
 	receive after 1000 -> ok end,
 	ReadTX = ar_storage:read_tx(SignedTX#tx.id),
 	?assertEqual(<<>>, ReadTX#tx.last_tx),
