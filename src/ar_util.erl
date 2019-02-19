@@ -18,6 +18,7 @@
 -export([rev_bin/1]).
 -export([do_until/3]).
 -export([index_of/2]).
+-export([disorder/1]).
 
 -include("ar.hrl").
 -include_lib("eunit/include/eunit.hrl").
@@ -221,6 +222,9 @@ index_of(_, [], _) -> not_found;
 index_of(_Subject, [_Subject | _], Counter) -> Counter;
 index_of(Subject, [_ | List], Counter) -> index_of(Subject, List, Counter + 1).
 
+%% @doc Randomize list
+disorder(List) ->
+	[Item || {_, Item} <- lists:sort([{rand:uniform(), Item} || Item <- List])].
 
 %%%
 %%% Tests.
@@ -277,3 +281,4 @@ index_of_test() ->
 	?assertEqual(2, index_of(b, [a, b, c])),
 	?assertEqual(3, index_of(c, [a, b, c])),
 	?assertEqual(not_found, index_of(d, [a, b, c])).
+		
