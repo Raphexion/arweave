@@ -10,6 +10,8 @@ ERL_OPTS= -pa ebin/ \
 	-sasl errlog_type error \
 	-s prometheus
 
+ERLC_OPTS = -I include
+
 test_all: test test_apps
 
 test: all
